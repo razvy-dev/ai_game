@@ -6,6 +6,7 @@ class UserCreate(BaseModel):
     email: str = Field(max_length = 120)
     phone: str | None = Field(max_length=20)
     image: str | None
+    ip: str | None
 
 class UserEdit(BaseModel):
     username: str = Field(min_length = 8, max_length = 25)

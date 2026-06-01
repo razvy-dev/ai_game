@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from pwdlib import PasswordHash
 from app.settings import settings
+from sqlalchemy import select, update, delete
 from app.schemas.user import UserCreate, UserPublicResponse, UserPrivateResponse, Token, UserEdit
 from app.models.user import User
 
@@ -19,12 +20,15 @@ class UserService:
 
     __oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/user/token")
 
+    @staticmethod
     def __hash_password(password: str) -> str:
-        return __pasword_hash.hash(password)
+        return UserService.__password_hash.hash(password)
 
-    def __verify_password(plain_password: str, hashed_password: str):
-        return __pasword_hash.verify(plain_password == hashed_password)
+    @staticmethod
+    def __verify_password(plain_password: str, hashed_password: str) -> bool:
+        return UserService.__password_hash.verify(plain_password, hashed_password)
 
+    @staticmethod
     def __create_access_token(data: dict, expires_delta: timedelta | None = None):
         """ Create an access JWT token """
         to_encode = data.copy()
@@ -45,6 +49,7 @@ class UserService:
 
         return encoded_jwt
 
+    @staticmethod
     def __verify_access_token(token: str) -> str | None:
         """ Verify the access token """
 
@@ -65,21 +70,10 @@ class UserService:
         else:
             return payload.get("sub")
 
+    @staticmethod
     async def __check_if_user_exists_by_email(db: AsyncSession, email: str) -> bool:
         result = await db.execute(
-            select(models.User).where(models.User.email == email)
-        )
-
-        existing = result.scalars().first()
-
-        if existing:
-            return True
-        else:
-            return False
-
-    async def __cehck_if_user_exists_by_username(db: AsyncSession, username: str) -> bool:
-        result = await db.execute(
-            select(models.User).where(models.User.username == username)
+            select(User).where(User.email == email)
         )
 
         existing = result.scalars().first()
@@ -90,11 +84,22 @@ class UserService:
             return False
 
     @staticmethod
-    async def sign_up(self, db: AsyncSession, user_data: UserCreate) -> UserPrivateResponse:
-        # check if the user already exists
+    async def __check_if_user_exists_by_username(db: AsyncSession, username: str) -> bool:
+        result = await db.execute(
+            select(User).where(User.username == username)
+        )
 
-        by_email = self.__check_if_user_exists_by_email(db, user_data.email)
-        by_username = self.__check_if_user_exists_by_username(db, user_data.username)
+        existing = result.scalars().first()
+
+        if existing:
+            return True
+        else:
+            return False
+
+    @staticmethod
+    async def sign_up(db: AsyncSession, user_data: UserCreate) -> UserPrivateResponse:
+        by_email = await UserService.__check_if_user_exists_by_email(db, user_data.email)
+        by_username = await UserService.__check_if_user_exists_by_username(db, user_data.username)
 
         if by_email or by_username:
             raise HTTPException(
@@ -102,18 +107,17 @@ class UserService:
                 detail="User already exists"
             )
 
-        # if i got here, it means the user does not exist, so I can create it
-
         new_user = User(
             username=user_data.username,
             email=user_data.email,
-            password=self.__hash_password(user_data.password),
+            password=UserService.__hash_password(user_data.password),
             phone=user_data.phone,
             image=user_data.image,
             ip=user_data.ip
         )
 
         try:
+            db.add(new_user)
             await db.commit()
             await db.refresh(new_user)
             return new_user
@@ -124,50 +128,48 @@ class UserService:
         # TODO: implement account verification using resend
 
     @staticmethod
-    async def sign_in(self, db: AsyncSession, sign_in_data) -> UserPrivateResponse:
-        # first of all, look him up in the database
-
-        result = await db.execute(select(User).where(User.email == sign_in_data.email))
+    async def sign_in(db: AsyncSession, sign_in_data) -> UserPrivateResponse:
+        result = await db.execute(select(User).where(User.email == sign_in_data.username))
 
         user = result.scalars().first()
 
-        if not user or not self.__verify_password(sign_in_data.password, user.password):
+        if not user or not UserService.__verify_password(sign_in_data.password, user.password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Either the password is wrong or the account does not exist"
+                detail="Either the password is wrong or the account does not exist"
             )
 
-        # if I got here, it means the account and the passworrd were correct, so I give back the access token
-
-        access_token_expires = timedelta(minuts=settings.access_token_expires_in_minutes)
-        access_token = self.__create_access_token(
-            data={
-                "sub": str(user.id)
-            },
+        access_token_expires = timedelta(minutes=settings.access_token_expires_in_minutes)
+        access_token = UserService.__create_access_token(
+            data={"sub": str(user.id)},
             expires_delta=access_token_expires
         )
 
-        return Token(access_token=acess_token, token_type='Bearer')
+        return Token(access_token=access_token, token_type='Bearer')
 
     @staticmethod
     async def forgot_password():
         pass # TODO: I can't implement this until I integrate resend in here
 
     @staticmethod
-    async def reset_password(db: AsyncSession, new_password: str, user_id: uuid.uuid4) -> UserPrivateResponse:
-        hashed_password = self.__hash_password(new_password)
+    async def reset_password(db: AsyncSession, new_password: str, user_id: uuid.UUID) -> UserPrivateResponse:
+        hashed_password = UserService.__hash_password(new_password)
         try:
-            result = await db.execute(update(User.password).where(User.id == user_id).set(new_password))
+            result = await db.execute(
+                update(User).where(User.id == user_id).values(password=hashed_password)
+            )
+            await db.commit()
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Setting a new passowrd for this account didn't work: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Setting a new password for this account didn't work: {str(e)}")
 
     @staticmethod
-    async def delete_account(db: AsyncSession, user_id: uuid.uuid4) -> bool: # a bool here to measure success
+    async def delete_account(db: AsyncSession, user_id: uuid.UUID) -> bool:
         try:
             result = await db.execute(delete(User).where(User.id == user_id))
+            await db.commit()
 
-            if result:
+            if result.rowcount > 0:
                 return True
             else:
                 return False
@@ -178,7 +180,10 @@ class UserService:
     @staticmethod
     async def edit_user(db: AsyncSession, new_user_data: UserEdit) -> UserPrivateResponse:
         try:
-            result = await db.execute(update(User).where(User.id == new_user_data.id).set(User = new_user_data))
+            result = await db.execute(
+                update(User).where(User.id == new_user_data.id).values(**new_user_data.model_dump(exclude_unset=True))
+            )
+            await db.commit()
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"This operation failed because of: {str(e)}")
