@@ -7,6 +7,7 @@ from app.settings import settings
 # Routers
 from app.routes.health import router as health_router
 from app.routes.issue import router as issue_router
+from app.routes.user import router as auth_router
 
 # Middlewares
 from app.middleware.time import timer as timer_middleware
@@ -18,6 +19,7 @@ app = FastAPI(
 
 app.include_router(health_router)
 app.include_router(issue_router)
+app.include_router(auth_router)
 
 app.middleware("http")(timer_middleware)
 

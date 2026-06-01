@@ -9,6 +9,7 @@ class UserCreate(BaseModel):
 
 class UserEdit(BaseModel):
     username: str = Field(min_length = 8, max_length = 25)
+    description: str = Field(max_length = 250)
     phone: str | None = Field(max_length=20)
     image: str | None
 
@@ -22,13 +23,15 @@ class UserDelete(BaseModel):
     succes: bool
 
 class UserPrivateResponse(BaseModel):
-    username: Field(min_length = 8, max_length = 25)
+    username: str = Field(min_length = 8, max_length = 25)
+    description: str | None = Field(max_length=250)
     email: str = Field(max_length = 120)
     phone: str | None = Field(max_length=20)
     image: str | None = Field(max_length = 200)
 
 class UserPublicResponse(BaseModel):
-    username: Field(min_length = 8, max_length = 25)
+    username: str = Field(min_length = 8, max_length = 25)
+    description: str | None = Field(max_length=250)
     phone: str | None = Field(max_length=20)
     image: str | None = Field(max_length = 200)
 

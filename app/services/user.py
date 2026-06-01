@@ -1,10 +1,12 @@
 from datetime import datetime, UTC, timedelta
 import jwt
 import uuid
-from fastapi.security import OAuth2PasswordBearer, HTTPException, status
+from fastapi import HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.ext.asyncio import AsyncSession
 from pwdlib import PasswordHash
 from app.settings import settings
-from app.schemas.user import UserCreate, UserPublicResponse, UserPrivateResponse, Token
+from app.schemas.user import UserCreate, UserPublicResponse, UserPrivateResponse, Token, UserEdit
 from app.models.user import User
 
 
@@ -63,7 +65,7 @@ class UserService:
         else:
             return payload.get("sub")
 
-    def __check_if_user_exists_by_email(db: AsyncSession, email: str) -> bool:
+    async def __check_if_user_exists_by_email(db: AsyncSession, email: str) -> bool:
         result = await db.execute(
             select(models.User).where(models.User.email == email)
         )
@@ -75,7 +77,7 @@ class UserService:
         else:
             return False
 
-    def __cehck_if_user_exists_by_username(db: AsyncSession, username: str) -> bool:
+    async def __cehck_if_user_exists_by_username(db: AsyncSession, username: str) -> bool:
         result = await db.execute(
             select(models.User).where(models.User.username == username)
         )
@@ -172,3 +174,31 @@ class UserService:
         
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Deleting this account didn't work: {str(e)}")
+
+    @staticmethod
+    async def edit_user(db: AsyncSession, new_user_data: UserEdit) -> UserPrivateResponse:
+        try:
+            result = await db.execute(update(User).where(User.id == new_user_data.id).set(User = new_user_data))
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"This operation failed because of: {str(e)}")
+
+    @staticmethod
+    async def get_user(db: AsyncSession, user_id: str) -> UserPublicResponse:
+        try:
+            result = await db.execute(select(User).where(User.id == user_id))
+
+            user = result.scalars().first()
+
+            if not user:
+                raise HTTPException(status_code=404, detail=f"there is not user with this id")
+
+            return UserPublicResponse(
+                username=user.username,
+                description=user.description,
+                phone=user.phone,
+                image=user.image
+            )
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"This operation kinda failed")
