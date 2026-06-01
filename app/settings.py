@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
+from pydantic import SecretStr
 
 class Settings(BaseSettings):
     """ App settings loaded from the .env file"""
@@ -29,6 +30,12 @@ class Settings(BaseSettings):
 
     frontend_origin: str = "http://lcalhost:3000"
     admin_origin: str = "http://localhost:5173"
+
+    # authentication stuff
+
+    secret_key: SecretStr
+    algorithm: str = "HS256"
+    access_token_expires_in_minutes: int = 30
 
     @property
     def postgres_dsn(self) -> str:
