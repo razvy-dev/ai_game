@@ -1,10 +1,11 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from functools import lru_cache
 
 class Settings(BaseSettings):
     """ App settings loaded from the .env file"""
 
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", case_sensitive=False
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )
 
     #postgres config
@@ -17,16 +18,36 @@ class Settings(BaseSettings):
 
     # TODO: redis config
 
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+
     # app stuff
 
     log_level: str = "DEBUG"
 
+    # allowed origins
+
+    frontend_origin: str = "http://lcalhost:3000"
+    admin_origin: str = "http://localhost:5173"
+
     @property
     def postgres_dsn(self) -> str:
         """Build PostgreSQL connection string"""
-        return f"postgresql://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
 
     @property
     def redis_url(self) -> str:
         """Build Redis connection string"""
         return f"redis://{self.redis_host}:{self.redis_port}/0"
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        """Build the allowed origins array"""
+        return [self.admin_origin, self.frontend_origin]
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+# Convenient global instance for configuration files
+settings = get_settings()
