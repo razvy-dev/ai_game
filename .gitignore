@@ -8,4 +8,5 @@ __pycache__
 
 # env stuff
 
-.env.*
+.env.local
+.env.prod
