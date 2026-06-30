@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     secret_key: SecretStr
     algorithm: str = "HS256"
     access_token_expires_in_minutes: int = 30
+    forgot_password_route: str = '/reset-password'
+
+    # resend stuff
+
+    resend_api_key: SecretStr
+    resend_email_from: str = "razvan.andronachi2007@gmail.com"
 
     @property
     def postgres_dsn(self) -> str:

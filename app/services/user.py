@@ -9,11 +9,7 @@ from app.settings import settings
 from sqlalchemy import select, update, delete
 from app.schemas.user import UserCreate, UserPublicResponse, UserPrivateResponse, Token, UserEdit
 from app.models.user import User
-
-
-password_hash = PasswordHash.recommended()
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/user/token")
+from app.services.email import EmailService
 
 class UserService:
     __password_hash = PasswordHash.recommended()
@@ -120,12 +116,19 @@ class UserService:
             db.add(new_user)
             await db.commit()
             await db.refresh(new_user)
-            return new_user
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Yeah, sign up basically failed: {str(e)}")
-        
-        # TODO: implement account verification using resend
+
+        try:
+            validation_code = uuid.uuid4()
+            EmailService.send_confirmation_email(to=user_data.email, validation_code=validation_code)
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Sending the confirmation email kind of went wrong: {str(e)}")
+
+        return new_user
+
 
     @staticmethod
     async def sign_in(db: AsyncSession, sign_in_data) -> UserPrivateResponse:
