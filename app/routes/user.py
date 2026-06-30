@@ -1,19 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import Annotated
 from app.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.user import UserService
-from app.schemas.user import UserPrivateResponse, UserPublicResponse, UserCreate, Token, UserEdit
+from app.schemas.user import UserPrivateResponse, UserPublicResponse, UserCreate, UserLogin, Token, UserEdit
 from datetime import timedelta
-from fastapi.security import OAuth2PasswordRequestForm
 
-router = APIRouter(prefix='/api/v1/user', tags=['users'])
+router = APIRouter(prefix='/api/v1/auth', tags=['auth'])
 
 @router.post(
     '/sign-in',
     response_model=Token
 )
-async def log_in(sign_in_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: AsyncSession = Depends(get_db)):
+async def log_in(sign_in_data: UserLogin, db: AsyncSession = Depends(get_db)):
     return await UserService.sign_in(db, sign_in_data)
 
 

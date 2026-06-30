@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pwdlib import PasswordHash
 from app.settings import settings
 from sqlalchemy import select, update, delete
-from app.schemas.user import UserCreate, UserPublicResponse, UserPrivateResponse, Token, UserEdit
+from app.schemas.user import UserCreate, UserLogin, UserPublicResponse, UserPrivateResponse, Token, UserEdit
 from app.models.user import User
 from app.services.email import EmailService
 
@@ -97,17 +97,22 @@ class UserService:
         by_email = await UserService.__check_if_user_exists_by_email(db, user_data.email)
         by_username = await UserService.__check_if_user_exists_by_username(db, user_data.username)
 
-        if by_email or by_username:
+        if by_email:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User already exists"
+                detail="An account with this email already exists"
+            )
+
+        if by_username:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="An account with this username already exists"
             )
 
         new_user = User(
             username=user_data.username,
             email=user_data.email,
             password=UserService.__hash_password(user_data.password),
-            phone=user_data.phone,
             image=user_data.image,
             ip=user_data.ip
         )
@@ -118,21 +123,38 @@ class UserService:
             await db.refresh(new_user)
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Yeah, sign up basically failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Sign up failed: {str(e)}")
 
         try:
-            validation_code = uuid.uuid4()
-            EmailService.send_confirmation_email(to=user_data.email, validation_code=validation_code)
+            validation_code_expires = timedelta(minutes=settings.access_token_expires_in_minutes)
+            validation_token = UserService.__create_access_token(
+                data={"sub": str(new_user.id), "purpose": "confirm_account"},
+                expires_delta=validation_code_expires
+            )
+            EmailService.send_confirmation_email(to=user_data.email, validation_code=validation_token)
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Sending the confirmation email kind of went wrong: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Sending the confirmation email failed: {str(e)}")
 
-        return new_user
+        access_token_expires = timedelta(minutes=settings.access_token_expires_in_minutes)
+        access_token = UserService.__create_access_token(
+            data={"sub": str(new_user.id)},
+            expires_delta=access_token_expires
+        )
+
+        return UserPrivateResponse(
+            id=str(new_user.id),
+            username=new_user.username,
+            email=new_user.email,
+            image=new_user.image,
+            description=new_user.description,
+            token=Token(access_token=access_token, token_type='Bearer')
+        )
 
 
     @staticmethod
-    async def sign_in(db: AsyncSession, sign_in_data) -> UserPrivateResponse:
-        result = await db.execute(select(User).where(User.email == sign_in_data.username))
+    async def sign_in(db: AsyncSession, sign_in_data: UserLogin) -> Token:
+        result = await db.execute(select(User).where(User.email == sign_in_data.email))
 
         user = result.scalars().first()
 
@@ -204,7 +226,6 @@ class UserService:
             return UserPublicResponse(
                 username=user.username,
                 description=user.description,
-                phone=user.phone,
                 image=user.image
             )
 

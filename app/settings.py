@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # allowed origins
 
-    frontend_origin: str = "http://lcalhost:3000"
+    frontend_origin: str = "http://localhost:3000"
     admin_origin: str = "http://localhost:5173"
 
     # authentication stuff
