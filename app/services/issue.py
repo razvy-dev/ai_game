@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.issue import IssueCreate, IssueDelete, IssueEdit, IssueResponse
 from app.models import Issue
 from sqlalchemy.future import select
+from fastapi import HTTPException
 
 class IssueService:
     @staticmethod
