@@ -6,7 +6,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from pwdlib import PasswordHash
 from app.settings import settings
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, func
 from app.schemas.user import UserCreate, UserLogin, UserPublicResponse, UserPrivateResponse, Token, UserEdit
 from app.models.user import User
 from app.services.email import EmailService
@@ -53,12 +53,16 @@ class UserService:
             payload = jwt.decode(
                 token,
                 settings.secret_key.get_secret_value(),
-                algorithm = [settings.algorithm],
+                algorithms = [settings.algorithm],
                 options = {"require": ["exp", "sub"]}
             )
 
-        except jwt.InvalidTokenError:
-            return None
+        except jwt.InvalidTokenError as e:
+            print(f"JWT verification failed: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"The validation token is invalid or has expired: {str(e)}"
+            )
 
         except Exception as e:
             print("Something went terribly wrong here")
@@ -93,7 +97,7 @@ class UserService:
             return False
 
     @staticmethod
-    async def sign_up(db: AsyncSession, user_data: UserCreate) -> UserPrivateResponse:
+    async def sign_up(db: AsyncSession, user_data: UserCreate) -> None:
         by_email = await UserService.__check_if_user_exists_by_email(db, user_data.email)
         by_username = await UserService.__check_if_user_exists_by_username(db, user_data.username)
 
@@ -135,21 +139,54 @@ class UserService:
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Sending the confirmation email failed: {str(e)}")
+    
 
-        access_token_expires = timedelta(minutes=settings.access_token_expires_in_minutes)
-        access_token = UserService.__create_access_token(
-            data={"sub": str(new_user.id)},
-            expires_delta=access_token_expires
-        )
+    async def confirm_account(db: AsyncSession, validation_token: str) -> UserPrivateResponse:
+        user_id = UserService.__verify_access_token(validation_token)
 
-        return UserPrivateResponse(
-            id=str(new_user.id),
-            username=new_user.username,
-            email=new_user.email,
-            image=new_user.image,
-            description=new_user.description,
-            token=Token(access_token=access_token, token_type='Bearer')
-        )
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The validation token is invalid or has expired"
+            )
+
+        user_uuid = uuid.UUID(user_id)
+
+        try:
+            result = await db.execute(
+                update(User).where(User.id == user_uuid).values(confirmed_at=func.now())
+            )
+
+            if result.rowcount <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User not found"
+                )
+
+            await db.commit()
+
+            user_result = await db.execute(select(User).where(User.id == user_uuid))
+            user = user_result.scalars().first()
+
+            access_token_expires = timedelta(minutes=settings.access_token_expires_in_minutes)
+            access_token = UserService.__create_access_token(
+                data={"sub": user_id},
+                expires_delta=access_token_expires
+            )
+
+            return UserPrivateResponse(
+                id=str(user.id),
+                username=user.username,
+                email=user.email,
+                image=user.image,
+                description=user.description,
+                token=Token(access_token=access_token, token_type='Bearer')
+            )
+
+        except HTTPException as e:
+            raise e
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Confirming the account failed: {str(e)}")
 
 
     @staticmethod

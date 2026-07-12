@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from app.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.user import UserService
@@ -17,11 +17,14 @@ async def log_in(sign_in_data: UserLogin, db: AsyncSession = Depends(get_db)):
 
 @router.post(
     '/sign-up', 
-    response_model=UserPrivateResponse,
     status_code=status.HTTP_201_CREATED
 )
 async def sign_up(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     return await UserService.sign_up(db=db, user_data=user_data)
+
+@router.get('/confirm-account', response_model=UserPrivateResponse, status_code=status.HTTP_200_OK)
+async def confirm_account(token: str, db: AsyncSession = Depends(get_db)):
+    return await UserService.confirm_account(db=db, validation_token=token)
 
 @router.get(
     '/{user_id}',

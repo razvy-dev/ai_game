@@ -20,7 +20,7 @@ class EmailService:
     @staticmethod
     def send_confirmation_email(to: str, validation_code: int, from_addr: str = settings.resend_email_from):
         subject = "Please confirm your account"
-        html = html= f'<p>Congrats on trying to create your <a target="_blank" href={settings.frontend_origin}/login/{validation_code}>account</a>!</p>'
+        html = f'<p>Congrats on trying to create your <a target="_blank" href={settings.frontend_origin}/account?token={validation_code}>account</a>!</p>'
 
         r = resend.Emails.send({
             "from": from_addr,
