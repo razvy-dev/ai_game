@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, status
 from app.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.user import UserService
-from app.schemas.user import UserPrivateResponse, UserPublicResponse, UserCreate, UserLogin, Token, UserEdit
+from app.schemas.user import UserPrivateResponse, UserPublicResponse, UserCreate, UserLogin, Token, UserEdit, UserResetPassword
 from datetime import timedelta
 
 router = APIRouter(prefix='/api/v1/auth', tags=['auth'])
@@ -46,9 +46,12 @@ async def forgot_password(db: AsyncSession = Depends(get_db)):
     pass
 
 
-@router.post('/reset-password')
-async def reset_password(new_password: str, user_id: str, db: AsyncSession = Depends(get_db)):
-    return await UserService.reset_password(db, new_password, user_id)
+@router.post(
+    '/reset-password',
+    status_code=status.HTTP_200_OK
+)
+async def reset_password(data: UserResetPassword, db: AsyncSession = Depends(get_db)):
+    return await UserService.reset_password(db, data.password, data.token)
 
 
 @router.post('/delete-account')

@@ -62,15 +62,39 @@ class UserEdit(BaseModel):
     description: str = Field(max_length = 250)
     image: str | None
 
+    @field_validator('username')
+    @classmethod
+    def validate_and_sanitize_username(cls, v: str) -> str:
+        sanitized = cls.sanitize_username(v)
+        if not re.match(r'^[a-z0-9_]+$', sanitized):
+            raise ValueError("Username can only contain letters, numbers, and underscores")
+        if len(sanitized) < 3:
+            raise ValueError("Username must be at least 3 characters after sanitization")
+        return sanitized
+
 class UserLogin(BaseModel):
-    email: str = Field(max_length=120)
+    email: EmailStr
     password: str = Field(min_length=8, max_length=120)
 
 class UserForgotPassword(BaseModel):
-    email: str = Field(max_length = 120)
+    email: EmailStr
 
 class UserResetPassword(BaseModel):
     password: str = Field(min_length = 8, max_length = 120)
+    token: str
+
+    @field_validator('password')
+    @classmethod
+    def validate_password_complexity(cls, v: str) -> str:
+        if not re.search(r'[A-Z]', v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r'[a-z]', v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not re.search(r'\d', v):
+            raise ValueError("Password must contain at least one digit")
+        if not re.search(r'[!@#$%^&*(),.?":{}|<>]', v):
+            raise ValueError("Password must contain at least one special character")
+        return v
 
 class UserDelete(BaseModel):
     succes: bool

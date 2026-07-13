@@ -1,4 +1,5 @@
 from datetime import datetime, UTC, timedelta
+import token
 import jwt
 import uuid
 from fastapi import HTTPException, status
@@ -214,7 +215,29 @@ class UserService:
         pass # TODO: I can't implement this until I integrate resend in here
 
     @staticmethod
-    async def reset_password(db: AsyncSession, new_password: str, user_id: uuid.UUID) -> UserPrivateResponse:
+    async def reset_password(db: AsyncSession, new_password: str, token: str) -> UserPrivateResponse:
+        # check if he is allowed to reset the password
+        try:
+            payload = jwt.decode(
+                token,
+                settings.secret_key.get_secret_value(),
+                algorithms=[settings.algorithm],
+                options={"require": ["exp", "sub", "purpose"]}
+            )
+        except jwt.InvalidTokenError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"The reset token is invalid or has expired: {str(e)}"
+            )
+
+        if payload.get("purpose") != "reset_password":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This token is not valid for password resets"
+            )
+
+        user_id = uuid.UUID(payload.get("sub"))
+
         hashed_password = UserService.__hash_password(new_password)
         try:
             result = await db.execute(
