@@ -229,6 +229,8 @@ class UserService:
             )
 
             EmailService.send_forgot_password_email(data.email, access_token)
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(
                 status_code=500,
