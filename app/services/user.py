@@ -190,7 +190,7 @@ class UserService:
 
 
     @staticmethod
-    async def sign_in(db: AsyncSession, sign_in_data: UserLogin) -> Token:
+    async def sign_in(db: AsyncSession, sign_in_data: UserLogin) -> UserPrivateResponse:
         result = await db.execute(select(User).where(User.email == sign_in_data.email))
 
         user = result.scalars().first()
@@ -207,7 +207,14 @@ class UserService:
             expires_delta=access_token_expires
         )
 
-        return Token(access_token=access_token, token_type='Bearer')
+        return UserPrivateResponse(
+            id=str(user.id),
+            username=user.username,
+            email=user.email,
+            image=user.image,
+            description=user.description,
+            token=Token(access_token=access_token, token_type='Bearer')
+        )
 
     @staticmethod
     async def forgot_password(db: AsyncSession, data: UserForgotPassword):

@@ -9,7 +9,7 @@ router = APIRouter(prefix='/api/v1/auth', tags=['auth'])
 
 @router.post(
     '/sign-in',
-    response_model=Token
+    response_model=UserPrivateResponse
 )
 async def log_in(sign_in_data: UserLogin, db: AsyncSession = Depends(get_db)):
     return await UserService.sign_in(db, sign_in_data)
