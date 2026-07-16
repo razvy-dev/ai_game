@@ -1,5 +1,4 @@
 from datetime import datetime, UTC, timedelta
-import token
 import jwt
 import uuid
 from fastapi import HTTPException, status
@@ -8,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pwdlib import PasswordHash
 from app.settings import settings
 from sqlalchemy import select, update, delete, func
-from app.schemas.user import UserCreate, UserLogin, UserPublicResponse, UserPrivateResponse, Token, UserEdit
+from app.schemas.user import UserCreate, UserLogin, UserPublicResponse, UserPrivateResponse, Token, UserEdit, UserResetPassword, UserForgotPassword
 from app.models.user import User
 from app.services.email import EmailService
 
@@ -211,40 +210,102 @@ class UserService:
         return Token(access_token=access_token, token_type='Bearer')
 
     @staticmethod
-    async def forgot_password():
-        pass # TODO: I can't implement this until I integrate resend in here
+    async def forgot_password(db: AsyncSession, data: UserForgotPassword):
+        try:
+            result = await db.execute(select(User).where(User.email == data.email))
+
+            user = result.scalars().first()
+
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="There is no user with this account"
+                )
+            
+            access_token_expires = timedelta(minutes=settings.access_token_expires_in_minutes)
+            access_token = UserService.__create_access_token(
+                data={"sub": str(user.id), "purpose": "reset_password"},
+                expires_delta=access_token_expires
+            )
+
+            EmailService.send_forgot_password_email(data.email, access_token)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Something went wrong: {str(e)}"
+            )
 
     @staticmethod
-    async def reset_password(db: AsyncSession, new_password: str, token: str) -> UserPrivateResponse:
-        # check if he is allowed to reset the password
-        try:
-            payload = jwt.decode(
-                token,
-                settings.secret_key.get_secret_value(),
-                algorithms=[settings.algorithm],
-                options={"require": ["exp", "sub", "purpose"]}
-            )
-        except jwt.InvalidTokenError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"The reset token is invalid or has expired: {str(e)}"
-            )
+    async def reset_password(db: AsyncSession, data: UserResetPassword) -> UserPrivateResponse:
+        if data.currentPassword:
+            try:
+                result = await db.execute(select(User).where(User.id == data.user_id))
 
-        if payload.get("purpose") != "reset_password":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="This token is not valid for password resets"
-            )
+                user = result.scalars().first()
 
-        user_id = uuid.UUID(payload.get("sub"))
+                if not user or not UserService.__verify_password(data.currentPassword, user.password):
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Either the password is wrong or the account does not exist"
+                    )
 
-        hashed_password = UserService.__hash_password(new_password)
+                user_id = user.id
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Something went wrong here: {str(e)}"
+                )
+        elif data.token:
+            try:
+                payload = jwt.decode(
+                    data.token,
+                    settings.secret_key.get_secret_value(),
+                    algorithms=[settings.algorithm],
+                    options={"require": ["exp", "sub", "purpose"]}
+                )
+            except jwt.InvalidTokenError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"The reset token is invalid or has expired: {str(e)}"
+                )
+
+            if payload.get("purpose") != "reset_password":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="This token is not valid for password resets"
+                )
+
+            user_id = uuid.UUID(payload.get("sub"))
+
+        hashed_password = UserService.__hash_password(data.password)
         try:
             result = await db.execute(
                 update(User).where(User.id == user_id).values(password=hashed_password)
             )
             await db.commit()
 
+            user_result = await db.execute(select(User).where(User.id == user_id))
+            user = user_result.scalars().first()
+
+            access_token_expires = timedelta(minutes=settings.access_token_expires_in_minutes)
+            access_token = UserService.__create_access_token(
+                data={"sub": str(user_id)},
+                expires_delta=access_token_expires
+            )
+
+            return UserPrivateResponse(
+                id=str(user.id),
+                username=user.username,
+                email=user.email,
+                image=user.image,
+                description=user.description,
+                token=Token(access_token=access_token, token_type='Bearer')
+            )
+
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Setting a new password for this account didn't work: {str(e)}")
 
