@@ -81,9 +81,8 @@ class UserForgotPassword(BaseModel):
 
 class UserResetPassword(BaseModel):
     password: str = Field(min_length = 8, max_length = 120)
-    token: str | None = None
     currentPassword: str | None = None
-    user_id: str | None = None
+    token: str | None = None # this is only if this request is made after the forgot password one
 
     @field_validator('password')
     @classmethod
@@ -98,21 +97,10 @@ class UserResetPassword(BaseModel):
             raise ValueError("Password must contain at least one special character")
         return v
 
-    @model_validator(mode='after')
-    def validate_currentPassword_or_token(self):
-        if not self.token and not self.currentPassword:
-            raise ValueError("You need to provide either the current password or a token to be able to access this.")
-        if self.token and self.currentPassword:
-            raise ValueError("You cannot provide both a token and a current password.")
-        if self.currentPassword and not self.user_id:
-            raise ValueError("user_id is required when using currentPassword.")
-        return self
-
 class UserDelete(BaseModel):
     succes: bool
 
 class UserPrivateResponse(BaseModel):
-    id: str = Field()
     username: str = Field(min_length = 8, max_length = 25)
     description: str | None = Field(max_length=250)
     email: str = Field(max_length = 120)
@@ -122,4 +110,9 @@ class UserPrivateResponse(BaseModel):
 class UserPublicResponse(BaseModel):
     username: str = Field(min_length = 8, max_length = 25)
     description: str | None = Field(max_length=250)
+    image: str | None = Field(max_length = 200)
+
+class UserProfileResponse(BaseModel):
+    username: str = Field(min_length = 8, max_length = 25)
+    description: str | None = Field(max_length = 250)
     image: str | None = Field(max_length = 200)

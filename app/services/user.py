@@ -2,26 +2,23 @@ from datetime import datetime, UTC, timedelta
 import jwt
 import uuid
 from fastapi import HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from pwdlib import PasswordHash
 from app.settings import settings
 from sqlalchemy import select, update, delete, func
-from app.schemas.user import UserCreate, UserLogin, UserPublicResponse, UserPrivateResponse, Token, UserEdit, UserResetPassword, UserForgotPassword
+from app.schemas.user import UserCreate, UserLogin, UserPublicResponse, UserPrivateResponse, Token, UserEdit, UserResetPassword, UserForgotPassword, UserProfileResponse
 from app.models.user import User
 from app.services.email import EmailService
 
 class UserService:
     __password_hash = PasswordHash.recommended()
 
-    __oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/user/token")
-
     @staticmethod
     def __hash_password(password: str) -> str:
         return UserService.__password_hash.hash(password)
 
     @staticmethod
-    def __verify_password(plain_password: str, hashed_password: str) -> bool:
+    def verify_password(plain_password: str, hashed_password: str) -> bool:
         return UserService.__password_hash.verify(plain_password, hashed_password)
 
     @staticmethod
@@ -46,7 +43,7 @@ class UserService:
         return encoded_jwt
 
     @staticmethod
-    def __verify_access_token(token: str) -> str | None:
+    def verify_access_token(token: str) -> str | None:
         """ Verify the access token """
 
         try:
@@ -142,7 +139,7 @@ class UserService:
     
 
     async def confirm_account(db: AsyncSession, validation_token: str) -> UserPrivateResponse:
-        user_id = UserService.__verify_access_token(validation_token)
+        user_id = UserService.verify_access_token(validation_token)
 
         if not user_id:
             raise HTTPException(
@@ -175,7 +172,6 @@ class UserService:
             )
 
             return UserPrivateResponse(
-                id=str(user.id),
                 username=user.username,
                 email=user.email,
                 image=user.image,
@@ -195,7 +191,7 @@ class UserService:
 
         user = result.scalars().first()
 
-        if not user or not UserService.__verify_password(sign_in_data.password, user.password):
+        if not user or not UserService.verify_password(sign_in_data.password, user.password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Either the password is wrong or the account does not exist"
@@ -208,7 +204,6 @@ class UserService:
         )
 
         return UserPrivateResponse(
-            id=str(user.id),
             username=user.username,
             email=user.email,
             image=user.image,
@@ -245,14 +240,14 @@ class UserService:
             )
 
     @staticmethod
-    async def reset_password(db: AsyncSession, data: UserResetPassword) -> UserPrivateResponse:
-        if data.currentPassword:
+    async def reset_password(db: AsyncSession, data: UserResetPassword, user_id: str | None = None) -> UserPrivateResponse:
+        if data.currentPassword and user_id:
             try:
-                result = await db.execute(select(User).where(User.id == data.user_id))
+                result = await db.execute(select(User).where(User.id == user_id))
 
                 user = result.scalars().first()
 
-                if not user or not UserService.__verify_password(data.currentPassword, user.password):
+                if not user or not UserService.verify_password(data.currentPassword, user.password):
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Either the password is wrong or the account does not exist"
@@ -288,7 +283,14 @@ class UserService:
 
             user_id = uuid.UUID(payload.get("sub"))
 
+        else:
+            raise HTTPException(
+                status_code=401,
+                detail="You are not allowed to do this"
+            )
+
         hashed_password = UserService.__hash_password(data.password)
+
         try:
             result = await db.execute(
                 update(User).where(User.id == user_id).values(password=hashed_password)
@@ -305,7 +307,6 @@ class UserService:
             )
 
             return UserPrivateResponse(
-                id=str(user.id),
                 username=user.username,
                 email=user.email,
                 image=user.image,
@@ -319,7 +320,7 @@ class UserService:
             raise HTTPException(status_code=500, detail=f"Setting a new password for this account didn't work: {str(e)}")
 
     @staticmethod
-    async def delete_account(db: AsyncSession, user_id: uuid.UUID) -> bool:
+    async def delete_account(user_id: uuid.UUID, db: AsyncSession) -> bool:
         try:
             result = await db.execute(delete(User).where(User.id == user_id))
             await db.commit()
@@ -333,20 +334,37 @@ class UserService:
             raise HTTPException(status_code=500, detail=f"Deleting this account didn't work: {str(e)}")
 
     @staticmethod
-    async def edit_user(db: AsyncSession, new_user_data: UserEdit) -> UserPrivateResponse:
+    async def edit_user(new_user_data: UserEdit, user_id: uuid.UUID, db: AsyncSession) -> UserPrivateResponse:
         try:
             result = await db.execute(
-                update(User).where(User.id == new_user_data.id).values(**new_user_data.model_dump(exclude_unset=True))
+                update(User).where(User.id == user_id).values(**new_user_data.model_dump(exclude_unset=True))
             )
             await db.commit()
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"This operation failed because of: {str(e)}")
-
-    @staticmethod
-    async def get_user(db: AsyncSession, user_id: str) -> UserPublicResponse:
+        
+    async def get_my_data(user_id: uuid.UUID, db: AsyncSession):
         try:
             result = await db.execute(select(User).where(User.id == user_id))
+
+            user = result.scalars().first()
+
+            return UserProfileResponse(
+                username=user.username,
+                email=user.email,
+                image=user.image,
+                description=user.description,
+                token=Token(access_token=access_token, token_type='Bearer')
+            )
+        
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"This operation failed miserably")
+
+    @staticmethod
+    async def get_user(db: AsyncSession, username: str) -> UserPublicResponse:
+        try:
+            result = await db.execute(select(User).where(User.username == username))
 
             user = result.scalars().first()
 
